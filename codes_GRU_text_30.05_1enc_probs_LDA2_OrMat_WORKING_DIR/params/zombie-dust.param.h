@@ -1,0 +1,10 @@
+128,256,15,airq,RNN
+128,256,15,airq,RNN-ATT
+128,256,15,airq,ATT-lambda
+128,256,15,airq,ATT-lambda-mu
+128,256,15,airq,ATT-dist
+128,256,20,pse,RNN
+128,256,20,pse,RNN-ATT
+128,256,20,pse,ATT-lambda
+128,256,20,pse,ATT-lambda-mu
+128,256,20,pse,ATT-dist

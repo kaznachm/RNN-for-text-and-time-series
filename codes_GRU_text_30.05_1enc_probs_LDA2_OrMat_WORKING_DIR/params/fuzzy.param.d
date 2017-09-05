@@ -1,0 +1,10 @@
+128,512,5,weather_data,RNN
+128,512,5,weather_data,RNN-ATT
+128,512,5,weather_data,ATT-lambda
+128,512,5,weather_data,ATT-lambda-mu
+128,512,5,weather_data,ATT-dist
+128,512,10,pse,RNN
+128,512,10,pse,RNN-ATT
+128,512,10,pse,ATT-lambda
+128,512,10,pse,ATT-lambda-mu
+128,512,10,pse,ATT-dist

@@ -1,0 +1,10 @@
+256,256,orig,weather_data,RNN
+256,256,orig,weather_data,RNN-ATT
+256,256,orig,weather_data,ATT-lambda
+256,256,orig,weather_data,ATT-lambda-mu
+256,256,orig,weather_data,ATT-dist
+256,256,orig,airq,RNN
+256,256,orig,airq,RNN-ATT
+256,256,orig,airq,ATT-lambda
+256,256,orig,airq,ATT-lambda-mu
+256,256,orig,airq,ATT-dist

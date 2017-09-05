@@ -1,0 +1,10 @@
+128,256,5,pse,RNN
+128,256,5,pse,RNN-ATT
+128,256,5,pse,ATT-lambda
+128,256,5,pse,ATT-lambda-mu
+128,256,5,pse,ATT-dist
+128,256,5,consseason,RNN
+128,256,5,consseason,RNN-ATT
+128,256,5,consseason,ATT-lambda
+128,256,5,consseason,ATT-lambda-mu
+128,256,5,consseason,ATT-dist

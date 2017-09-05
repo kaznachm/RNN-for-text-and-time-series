@@ -1,0 +1,10 @@
+128,512,20,consseason,RNN
+128,512,20,consseason,RNN-ATT
+128,512,20,consseason,ATT-lambda
+128,512,20,consseason,ATT-lambda-mu
+128,512,20,consseason,ATT-dist
+128,512,20,weather_data,RNN
+128,512,20,weather_data,RNN-ATT
+128,512,20,weather_data,ATT-lambda
+128,512,20,weather_data,ATT-lambda-mu
+128,512,20,weather_data,ATT-dist

@@ -1,0 +1,275 @@
+==========
+What did we do in python:
+==========
+
+import sys
+import csv
+import numpy as np
+#import matplotlib.pyplot as plt
+import theano
+import theano.tensor as T
+import lasagne
+import cPickle as pickle
+import logging
+from lasagne.layers import get_output
+from lasagne.regularization import regularize_layer_params_weighted, l2, l1
+import os
+import linecache
+from models import model_seq2seq_att_adist, model_seq2seq, model_seq2seq_att, model_seq2seq_att_lambda_mu, model_seq2seq_att_lambda 
+from models_mvrt import model_seq2seq_mvrt4, model_seq2seq_att_mvrt4, model_seq2seq_att_lambda_mvrt4, model_seq2seq_mvrt4_GRU, model_seq2seq_GRU_text
+from models_mvrt import model_seq2seq_att_lambda_mu_mvrt4, model_seq2seq_att_lambda_mu_alt_mvrt4, model_seq2seq_att_lambda_mu_mvrt4_intr
+
+
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
+results_directory = 'Results_multivariate_text/'
+
+def load_parameters2_mvrt_text(params_csvfile, line_num): 
+    """
+    reads the params for the new generated params
+    """
+    params={}
+    values = linecache.getline(params_csvfile,line_num)[:-1].split(',')
+    params['num_units'] = int(values[0])
+    params['num_att_units'] = int(values[1])
+    data_type = str(values[2]) 
+    params['data_name'] = str(values[3])
+    model = str(values[4]) 
+    if params['data_name'] == 'coservit':
+        params['windowise'] = 288
+        params['horizon'] = 27
+        params['word_dim'] = 200
+        params['vocab_size'] = 155563
+    if data_type == 'orig':
+        params['data_type'] = 'original'
+        if params['data_name'] == 'coservit':
+            #params['time_data'] = '../../../Data' + params['data_name'] + 
+            #params['text_data'] = '../../../Data' + params['data_name'] + 
+            #params['data_file'] =  '../../../Data/' + params['data_name'] + 'ticket2time.pkl'
+            params['data_file'] =  '../../../Data/coservit/' + 'x_enc.pkl'
+            params['text_file_wv'] =  '../../../Data/coservit/' + 'tickets_wv_pad_mtx.dat'
+            params['text_file_w'] =  '../../../Data/coservit/' + 'tickets_w_pad_mtx.dat'
+        else:
+            #TODO
+            pass
+    else:
+        pass
+    if model == 'RNN':
+        params['attention'] = False
+    else:
+        params['attention'] = True
+        if model == 'RNN-ATT':
+            params['att_type'] = 'original'
+        elif model == 'ATT-lambda':
+            params['att_type'] = 'lambda'
+        elif model == 'ATT-lambda-mu':
+            params['att_type'] = 'lambda_mu' 
+        elif model == 'ATT-lambda-mu-alt':
+            params['att_type'] = 'lambda_mu_alt'
+        elif model == 'ATT-dist':
+            params['att_type'] = 'adist'        
+    params['alg'] = 'adam'
+    params['lambda_regularization'] = 0.0001
+    params['eta_decay'] = 0.95
+    params['early_stop_patience'] = 10000
+    params['num_layers'] = 1
+    params['regularization_type'] = 'l2'
+    params['early_stop'] = True
+    params['grad_clipping'] = 100
+    params['train_test_ratio'] = 0.75
+    params['train_val_ratio'] = 0.75
+    params['patience_increase'] = 2 
+    params['epsilon_improvement'] = True 
+    params['lr_decay_after_n_epoch'] = 50
+    params['interpolation'] = True #!!!!!!
+    params['max_num_epochs'] = 25
+    params['epsilon'] = 0.01
+    params['learning_rate'] = 0.001
+    params['batch_size'] = 64
+    params['padding'] = True 
+    params['learning_rate_decay'] = False
+    params['interpolation_type'] = 'None'
+    return params
+	
+	
+params = load_parameters2_mvrt_text('params/fuzzy.param.text', 1)
+params
+
+
+X_enc_sym = T.ftensor3('x_enc_sym')
+X_enc_sym2 = T.ftensor3('x_enc_sym2')
+X_dec_sym = T.ftensor3('x_dec_sym')
+y_sym = T.matrix('y_sym') # indexes of 1hot words, for loss #y_sym = T.ftensor3('y_sym') #y_sym = T.matrix('y_sym')
+eta = theano.shared(np.array(params['learning_rate'], dtype=theano.config.floatX))
+
+word_dim = params['word_dim']
+vocab_size = params['vocab_size']
+grad_clip = params['grad_clipping']
+hidden_size = params['num_units']
+pred_len = 27
+hidden_size=64
+grad_clip = 100
+vocab_size=155563
+word_dim=200
+
+#l_out, l_out_val = model_seq2seq_GRU_text(X_enc_sym, X_enc_sym2, X_dec_sym, params['windowise'], params['horizon'],  hidden_size = params['num_units'], 
+#                                                            grad_clip = params['grad_clipping'], vocab_size = params['vocab_size'], word_dim = params['word_dim'])
+														
+														
+l_in_enc = lasagne.layers.InputLayer(shape=(None, None, 1), input_var=X_enc_sym)  
+l_forward = lasagne.layers.GRULayer(l_in_enc, num_units=hidden_size, grad_clipping=grad_clip, only_return_final=True )#l_forward = lasagne.layers.GRULayer(l_in_enc, num_units=hidden_size, mask_input=l_mask_enc, grad_clipping=grad_clip, only_return_final=True )
+l_backward = lasagne.layers.GRULayer(l_in_enc, num_units=hidden_size, grad_clipping=grad_clip, only_return_final=True, backwards=True)#l_backward = lasagne.layers.GRULayer(l_in_enc, num_units=hidden_size, mask_input=l_mask_enc, grad_clipping=grad_clip, only_return_final=True, backwards=True)
+l_enc1 = lasagne.layers.ConcatLayer([l_forward, l_backward], axis=1)
+l_in_enc2 = lasagne.layers.InputLayer(shape=(None, None, 1), input_var=X_enc_sym2)
+l_forward2 = lasagne.layers.GRULayer(l_in_enc2, num_units=hidden_size, grad_clipping=grad_clip, only_return_final=True )#l_forward2 = lasagne.layers.GRULayer(l_in_enc2, num_units=hidden_size, mask_input=l_mask_enc2, grad_clipping=grad_clip, only_return_final=True )
+l_backward2 = lasagne.layers.GRULayer(l_in_enc2, num_units=hidden_size, grad_clipping=grad_clip, only_return_final=True, backwards=True)#l_backward2 = lasagne.layers.GRULayer(l_in_enc2, num_units=hidden_size, mask_input=l_mask_enc2, grad_clipping=grad_clip, only_return_final=True, backwards=True)
+l_enc2 = lasagne.layers.ConcatLayer([l_forward2, l_backward2], axis=1)
+
+l_enc = lasagne.layers.ConcatLayer([l_enc1, l_enc2], axis=1) #(None, 256)
+dec_units = 2*2 +1 
+l_in_dec = lasagne.layers.InputLayer(shape=(None, pred_len, word_dim),input_var=X_dec_sym) #(None, 27, 200)
+s_lin_dec = lasagne.layers.SliceLayer(l_in_dec, indices=0, axis=1) 
+s_lin_dec = lasagne.layers.ReshapeLayer(s_lin_dec, ([0], 1, [1]))	#(None, 1, 200)
+h_init = lasagne.layers.ConcatLayer([l_forward, l_enc], axis=1)
+l_dec = lasagne.layers.GRULayer(s_lin_dec, num_units=hidden_size*dec_units, learn_init=False, 		#(None, 320)
+                                         hid_init=h_init, grad_clipping=grad_clip, only_return_final=True )
+										 
+r_gate = lasagne.layers.Gate(W_in=l_dec.W_in_to_resetgate, W_hid=l_dec.W_hid_to_resetgate, b=l_dec.b_resetgate)
+u_gate = lasagne.layers.Gate(W_in=l_dec.W_in_to_updategate, W_hid=l_dec.W_hid_to_updategate, b=l_dec.b_updategate)
+h_update = lasagne.layers.Gate(W_in=l_dec.W_in_to_hidden_update, W_hid=l_dec.W_hid_to_hidden_update, b=l_dec.b_hidden_update)
+l_dec_hid_state = lasagne.layers.SliceLayer(l_dec, indices=slice(0,hidden_size)) #(None, 64)
+l_out = lasagne.layers.DenseLayer(l_dec_hid_state, num_units=vocab_size, nonlinearity=lasagne.nonlinearities.softmax)
+w_dense = l_out.W
+b_dense = l_out.b
+
+l_out_loop = l_out #(None, 155563)
+l_out_loop_val = l_out  #(None, 155563)
+l_out = lasagne.layers.ReshapeLayer(l_out, ([0], 1, [1])) #3d (None, 1, 155563)
+l_out_val = l_out #3d (None, 1, 155563)
+h_init = lasagne.layers.ConcatLayer([l_dec_hid_state, l_enc], axis=1) # (None, 320)
+h_init_val = lasagne.layers.ConcatLayer([l_dec_hid_state, l_enc], axis=1) #(None, 320)
+
+for i in range(1,pred_len): 
+	s_lin_dec = lasagne.layers.SliceLayer(l_in_dec, indices=i, axis=1) #(None, 200)
+  	s_lin_dec = lasagne.layers.ReshapeLayer(s_lin_dec, ([0], 1, [1])) #(None, 1, 200)
+	l_dec = lasagne.layers.GRULayer(s_lin_dec, num_units=hidden_size*dec_units, learn_init=False,	 #(None, 320)
+                                         hid_init=h_init, grad_clipping=grad_clip, only_return_final=True, 
+                                         resetgate=r_gate, updategate=u_gate, hidden_update=h_update)
+	l_dec_hid_state = lasagne.layers.SliceLayer(l_dec, indices=slice(0,hidden_size)) #(None, 64)
+	#pred = lasagne.layers.ReshapeLayer(l_out_loop_val, ([0], 1, [1])) #(None, 1, 155563)
+    
+	pred_d = lasagne.layers.DenseLayer(l_out_loop_val, num_units=word_dim, nonlinearity=lasagne.nonlinearities.linear) #(None, 200)
+	pred = lasagne.layers.ReshapeLayer(pred_d, ([0], 1, [1])) #(None, 1, 200)
+	
+	#ind_word = T.argmax(pred, axis=0)
+	l_dec_val = lasagne.layers.GRULayer(pred, num_units=hidden_size*dec_units, learn_init=False,
+                                         hid_init=h_init_val, grad_clipping=grad_clip, only_return_final=True,
+                                         resetgate=r_gate, updategate=u_gate, hidden_update=h_update) #(None, 320)
+	l_dec_val_hid_state = lasagne.layers.SliceLayer(l_dec_val, indices=slice(0,hidden_size)) #(None, 64)
+	l_out_loop = lasagne.layers.DenseLayer(l_dec_hid_state, num_units=vocab_size, W=w_dense, b=b_dense, nonlinearity=lasagne.nonlinearities.softmax) #(None, 155563)
+	l_out_loop = lasagne.layers.ReshapeLayer(l_out_loop, ([0], 1, [1])) ####### #(None, 1, 155563)
+	l_out = lasagne.layers.ConcatLayer([l_out, l_out_loop], axis=1) #(None, 2, 155563)
+	l_out_loop_val = lasagne.layers.DenseLayer(l_dec_val_hid_state, num_units=vocab_size, W=w_dense, b=b_dense, nonlinearity=lasagne.nonlinearities.softmax) #(None, 155563)
+	l_out_loop_val_d = lasagne.layers.ReshapeLayer(l_out_loop_val, ([0], 1, [1])) #(None, 1, 155563)
+	l_out_val = lasagne.layers.ConcatLayer([l_out_val, l_out_loop_val_d], axis=1) #(None, 2, 155563)
+	#l_out_loop_val = lasagne.layers.FlattenLayer(l_out_loop_val, 2)
+	h_init = lasagne.layers.ConcatLayer([l_dec_hid_state, l_enc], axis=1) #(None, 320)
+	h_init_val = lasagne.layers.ConcatLayer([l_dec_val_hid_state, l_enc], axis=1) #(None, 320)
+
+#l_out.output_shape #shape = (None, 27, 155563)
+#l_out_val.output_shape # shape = (None, 27, 155563)
+
+#l_out = lasagne.layers.ReshapeLayer(l_out, (-1, hidden_size)) #(None, 64)
+#l_out_val = lasagne.layers.ReshapeLayer(l_out_val, (-1, hidden_size)) #(None, 64)
+
+
+
+
+===================================
+
+l_out_conc = lasagne.layers.ConcatLayer([l_out, l_out_loop])
+l_out_val_conc = lasagne.layers.ConcatLayer([l_out_val, l_out_loop_val], axis=1)
+
+l_out = lasagne.layers.ReshapeLayer(l_out, ([0], 1, [1]))
+l_out_loop = lasagne.layers.ReshapeLayer(l_out_loop, ([0], 1, [1]))
+
+
+
+===================================
+
+aa = np.array([[[1,2,3], [4,5,6], [0,2,1], [0,1,2]], [[6,7,8], [3,6,0], [4,3,2], [1,1,2]]])
+a = theano.shared(aa, 'a')
+bb = np.array([[1,1,1,1], [1,1,1,1]])
+b = theano.shared(bb, 'b')
+
+def categorical_crossentropy_3d(coding_dist, true_dist):
+	# Zero out the false probabilities and sum the remaining true probabilities to remove the third dimension.
+	indexes = theano.tensor.arange(coding_dist.shape[2])
+	mask = theano.tensor.neq(indexes, true_dist.reshape((true_dist.shape[0], true_dist.shape[1], 1)))
+	pred_probs = theano.tensor.set_subtensor(coding_dist[theano.tensor.nonzero(mask)], 0.).sum(axis=2)
+	pred_probs_per_sample = pred_probs.sum(axis=1)
+	return -theano.tensor.log(pred_probs_per_sample), pred_probs, pred_probs_per_sample
+
+s, ss, sss = categorical_crossentropy_3d(a, b)
+s, ss, sss = s.eval(), ss.eval(), sss.eval()
+print(s)
+print(ss)
+print(sss)
+
+
+
+
+===================================
+
+Traceback (most recent call last):
+  File "prediction_rnn_mvrt_intrl_GRU.py", line 2056, in <module>
+    main()  
+  File "prediction_rnn_mvrt_intrl_GRU.py", line 1989, in main
+    train_loss, validation_loss = train_and_test_text(params, results_directory)
+  File "prediction_rnn_mvrt_intrl_GRU.py", line 1865, in train_and_test_text
+    val_loss = f_val(X_val, X_val2, X_val_dec, y_val_w) #val_loss = f_val(X_val, X_val_mask, X_val2, X_val_mask2, X_val3, X_val_mask3, X_val4, X_val_mask4, X_val_dec, X_val_mask_dec, y_val)
+  File "/home/ama/kaznachm/.local/lib/python2.7/site-packages/theano/compile/function_module.py", line 898, in __call__
+    storage_map=getattr(self.fn, 'storage_map', None))
+  File "/home/ama/kaznachm/.local/lib/python2.7/site-packages/theano/gof/link.py", line 325, in raise_with_op
+    reraise(exc_type, exc_value, exc_trace)
+  File "/home/ama/kaznachm/.local/lib/python2.7/site-packages/theano/compile/function_module.py", line 884, in __call__
+    self.fn() if output_subset is None else\
+ValueError: Shape mismatch: x has 155563 cols (and 260 rows) but y has 200 rows (and 1920 cols)
+Apply node that caused the error: Dot22(SoftmaxWithBias.0, Join.0)
+Toposort index: 285
+Inputs types: [TensorType(float64, matrix), TensorType(float64, matrix)]
+Inputs shapes: [(260, 155563), (200, 1920)]
+Inputs strides: [(1244504, 8), (15360, 8)]
+Inputs values: ['not shown', 'not shown']
+Outputs clients: [[Reshape{2}(Dot22.0, MakeVector{dtype='int64'}.0)]]
+
+HINT: Re-running with most Theano optimization disabled could give you a back-trace of when this node was created. This can be done with by setting the Theano flag 'optimizer=fast_compile'. If that does not work, Theano optimizations can be disabled with 'optimizer=None'.
+HINT: Use the Theano flag 'exception_verbosity=high' for a debugprint and storage map footprint of this apply node.
+
+===================================
+
+
+for i in range(1,pred_len): 
+	s_lin_dec = lasagne.layers.SliceLayer(l_in_dec, indices=i, axis=1) #(None, 200)
+  	s_lin_dec = lasagne.layers.ReshapeLayer(s_lin_dec, ([0], 1, [1])) #(None, 1, 200)
+	l_dec = lasagne.layers.GRULayer(s_lin_dec, num_units=hidden_size*dec_units, learn_init=False,	 #(None, 320)
+                                         hid_init=h_init, grad_clipping=grad_clip, only_return_final=True, 
+                                         resetgate=r_gate, updategate=u_gate, hidden_update=h_update)
+	l_dec_hid_state = lasagne.layers.SliceLayer(l_dec, indices=slice(0,hidden_size)) #(None, 64)
+	pred = lasagne.layers.ReshapeLayer(l_out_loop_val, ([0], 1, [1])) #(None, 1, 155563)
+	pred_2 = lasagne.layers.DenseLayer(pred, num_units=word_dim, W=w_dense, b=b_dense, nonlinearity=lasagne.nonlinearities.softmax) #(None, 155563)
+	pred_2 = lasagne.layers.ReshapeLayer(pred_2, ([0], 1, [1])) ####### #(None, 1, 155563)
+    
+	#ind_word = T.argmax(pred, axis=0)
+	l_dec_val = lasagne.layers.GRULayer(pred_2, num_units=hidden_size*dec_units, learn_init=False,
+                                         hid_init=h_init_val, grad_clipping=grad_clip, only_return_final=True,
+                                         resetgate=r_gate, updategate=u_gate, hidden_update=h_update) #(None, 320)
+	l_dec_val_hid_state = lasagne.layers.SliceLayer(l_dec_val, indices=slice(0,hidden_size)) #(None, 64)
+	l_out_loop = lasagne.layers.DenseLayer(l_dec_hid_state, num_units=vocab_size, W=w_dense, b=b_dense, nonlinearity=lasagne.nonlinearities.softmax) #(None, 155563)
+	l_out_loop = lasagne.layers.ReshapeLayer(l_out_loop, ([0], 1, [1])) ####### #(None, 1, 155563)
+	l_out = lasagne.layers.ConcatLayer([l_out, l_out_loop], axis=1) #(None, 2, 155563)
+	l_out_loop_val = lasagne.layers.DenseLayer(l_dec_val_hid_state, num_units=vocab_size, W=w_dense, b=b_dense, nonlinearity=lasagne.nonlinearities.softmax) #(None, 155563)
+	l_out_loop_val_d = lasagne.layers.ReshapeLayer(l_out_loop_val, ([0], 1, [1])) #(None, 1, 155563)
+	l_out_val = lasagne.layers.ConcatLayer([l_out_val, l_out_loop_val_d], axis=1) #(None, 2, 155563)
+	#l_out_loop_val = lasagne.layers.FlattenLayer(l_out_loop_val, 2)
+	h_init = lasagne.layers.ConcatLayer([l_dec_hid_state, l_enc], axis=1) #(None, 320)
+	h_init_val = lasagne.layers.ConcatLayer([l_dec_val_hid_state, l_enc], axis=1) #(None, 320)
